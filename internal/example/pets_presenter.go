@@ -1,40 +1,30 @@
 package example
 
 import (
-	"context"
-
-	versionmanager "github.com/ophum/go-optimistic-locker/version_manager"
+	optimisticlocker "github.com/ophum/go-optimistic-locker"
 )
 
-type PetsPresenter struct {
-	versionManager versionmanager.VersionManager
-}
-
-func NewPetsPresenter(versionManager versionmanager.VersionManager) *PetsPresenter {
-	return &PetsPresenter{versionManager}
-}
-
-func (p *PetsPresenter) PetResponse(ctx context.Context, pet *Pet) (*ResponsePet, error) {
-	version, err := p.versionManager.Get(ctx, MakePetsKey(pet.ID))
+func PetResponse(pet *Pet) (*ResponsePet, error) {
+	etag, err := optimisticlocker.GenerateEtag(pet)
 	if err != nil {
 		return nil, err
 	}
 	return &ResponsePet{
-		Data:    pet,
-		Version: version,
+		Data: pet,
+		Etag: etag,
 	}, nil
 }
 
-func (p *PetsPresenter) PetsResponse(ctx context.Context, pets []*Pet) ([]*ResponsePet, error) {
+func PetsResponse(pets []*Pet) ([]*ResponsePet, error) {
 	res := make([]*ResponsePet, 0, len(pets))
 	for _, pet := range pets {
-		version, err := p.versionManager.Get(ctx, MakePetsKey(pet.ID))
+		etag, err := optimisticlocker.GenerateEtag(pet)
 		if err != nil {
 			return nil, err
 		}
 		res = append(res, &ResponsePet{
-			Data:    pet,
-			Version: version,
+			Data: pet,
+			Etag: etag,
 		})
 	}
 	return res, nil

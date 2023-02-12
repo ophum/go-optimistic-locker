@@ -1,31 +1,20 @@
 package optimisticlocker
 
 import (
-	"log"
 	"net/http"
-
-	versionmanager "github.com/ophum/go-optimistic-locker/version_manager"
 )
 
-type VersionKeyParser func(r *http.Request) (string, error)
+type ResourceGetter func(r *http.Request) (any, error)
 
 type Middleware = func(next http.Handler) http.Handler
 
-type Locker interface {
-	PreconditionCheck(keyMaker VersionKeyParser) Middleware
-
-	VersionManager() versionmanager.VersionManager
-}
-
-type locker struct {
-	versionManager versionmanager.VersionManager
-}
-
-func NewLocker(vm versionmanager.VersionManager) Locker {
-	return &locker{vm}
-}
-
-func (l *locker) PreconditionCheck(keyParser VersionKeyParser) Middleware {
+func PreconditionCheck(resourceGetter ResourceGetter, opts ...PreconditionCheckOption) Middleware {
+	option := PreconditionCheckOptions{
+		EtagGenerator: DefaultEtagGenerator,
+	}
+	for _, opt := range opts {
+		opt.apply(&option)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ifMatch := r.Header.Get("If-Match")
@@ -33,28 +22,21 @@ func (l *locker) PreconditionCheck(keyParser VersionKeyParser) Middleware {
 				w.WriteHeader(http.StatusPreconditionRequired)
 				return
 			}
-			key, err := keyParser(r)
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				log.Println(err)
-				return
-			}
-			version, err := l.versionManager.Get(r.Context(), key)
+			targetResource, err := resourceGetter(r)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				log.Println(err)
 				return
 			}
-
-			if ifMatch != version {
+			etag, err := option.EtagGenerator(targetResource)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if ifMatch != etag {
 				w.WriteHeader(http.StatusPreconditionFailed)
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-func (l *locker) VersionManager() versionmanager.VersionManager {
-	return l.versionManager
 }

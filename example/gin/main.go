@@ -4,10 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	optimisticlocker "github.com/ophum/go-optimistic-locker"
 	ginoptimisticlocker "github.com/ophum/go-optimistic-locker/frameworks/gin"
 	"github.com/ophum/go-optimistic-locker/internal/example"
-	"github.com/ophum/go-optimistic-locker/version_manager/inmemory"
 )
 
 func h(f func(ctx *gin.Context) error) gin.HandlerFunc {
@@ -24,19 +22,14 @@ func h(f func(ctx *gin.Context) error) gin.HandlerFunc {
 func main() {
 	r := gin.Default()
 
-	versionManager := inmemory.NewInmemoryStore()
-	locker := optimisticlocker.NewLocker(versionManager)
-
 	service := example.NewPetsService()
-	presenter := example.NewPetsPresenter(versionManager)
-
 	r.GET("/pets", func(ctx *gin.Context) {
 		pets, err := service.List(ctx.Request.Context())
 		if err != nil {
 			ctx.AbortWithError(http.StatusInternalServerError, err)
 			return
 		}
-		res, err := presenter.PetsResponse(ctx.Request.Context(), pets)
+		res, err := example.PetsResponse(pets)
 		if err != nil {
 			ctx.AbortWithError(http.StatusInternalServerError, err)
 			return
@@ -58,7 +51,7 @@ func main() {
 			return
 		}
 
-		res, err := presenter.PetResponse(ctx.Request.Context(), pet)
+		res, err := example.PetResponse(pet)
 		if err != nil {
 			ctx.AbortWithError(http.StatusInternalServerError, err)
 			return
@@ -79,11 +72,7 @@ func main() {
 			return
 		}
 
-		if _, err := versionManager.Create(ctx.Request.Context(), example.MakePetsKey(pet.ID)); err != nil {
-			ctx.AbortWithError(http.StatusInternalServerError, err)
-			return
-		}
-		res, err := presenter.PetResponse(ctx.Request.Context(), pet)
+		res, err := example.PetResponse(pet)
 		if err != nil {
 			ctx.AbortWithError(http.StatusInternalServerError, err)
 			return
@@ -91,8 +80,15 @@ func main() {
 		ctx.JSON(http.StatusCreated, res)
 	})
 
+	petsIDParser := example.IDParser("/pets/:id")
 	r.PUT("/pets/:id",
-		ginoptimisticlocker.PreconditionCheck(locker, example.KeyParser("/pets/:id")),
+		ginoptimisticlocker.PreconditionCheck(func(r *http.Request) (any, error) {
+			id, err := petsIDParser(r)
+			if err != nil {
+				return nil, err
+			}
+			return service.Get(r.Context(), id)
+		}),
 		func(ctx *gin.Context) {
 			var reqUri example.Pet
 			if err := ctx.ShouldBindUri(&reqUri); err != nil {
@@ -118,11 +114,7 @@ func main() {
 				return
 			}
 
-			if _, err := versionManager.Update(ctx.Request.Context(), example.MakePetsKey(pet.ID)); err != nil {
-				ctx.AbortWithError(http.StatusInternalServerError, err)
-				return
-			}
-			res, err := presenter.PetResponse(ctx.Request.Context(), pet)
+			res, err := example.PetResponse(pet)
 			if err != nil {
 				ctx.AbortWithError(http.StatusInternalServerError, err)
 				return

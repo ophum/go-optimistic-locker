@@ -5,6 +5,6 @@ import (
 	optimisticlocker "github.com/ophum/go-optimistic-locker"
 )
 
-func PreconditionCheck(locker optimisticlocker.Locker, keyParser optimisticlocker.VersionKeyParser) echo.MiddlewareFunc {
-	return echo.WrapMiddleware(locker.PreconditionCheck(keyParser))
+func PreconditionCheck(get optimisticlocker.ResourceGetter) echo.MiddlewareFunc {
+	return echo.WrapMiddleware(optimisticlocker.PreconditionCheck(get))
 }

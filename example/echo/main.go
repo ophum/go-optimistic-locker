@@ -7,28 +7,23 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	optimisticlocker "github.com/ophum/go-optimistic-locker"
 	echooptimisticlocker "github.com/ophum/go-optimistic-locker/frameworks/echo"
 	"github.com/ophum/go-optimistic-locker/internal/example"
-	"github.com/ophum/go-optimistic-locker/version_manager/inmemory"
 )
 
 func main() {
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	versionManager := inmemory.NewInmemoryStore()
-	locker := optimisticlocker.NewLocker(versionManager)
 
 	service := example.NewPetsService()
-	presenter := example.NewPetsPresenter(versionManager)
 
 	e.GET("/pets", func(c echo.Context) error {
 		pets, err := service.List(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		res, err := presenter.PetsResponse(c.Request().Context(), pets)
+		res, err := example.PetsResponse(pets)
 		if err != nil {
 			return err
 		}
@@ -44,7 +39,7 @@ func main() {
 		if err != nil {
 			return err
 		}
-		res, err := presenter.PetResponse(c.Request().Context(), pet)
+		res, err := example.PetResponse(pet)
 		if err != nil {
 			return err
 		}
@@ -61,16 +56,14 @@ func main() {
 		if err != nil {
 			return err
 		}
-		if _, err := versionManager.Create(c.Request().Context(), example.MakePetsKey(pet.ID)); err != nil {
-			return err
-		}
-		res, err := presenter.PetResponse(c.Request().Context(), pet)
+		res, err := example.PetResponse(pet)
 		if err != nil {
 			return err
 		}
 		return c.JSON(http.StatusCreated, res)
 	})
 
+	petsIDParser := example.IDParser("/pets/:id")
 	e.PUT("/pets/:id", func(c echo.Context) error {
 		var req example.Pet
 		if err := c.Bind(&req); err != nil {
@@ -89,15 +82,18 @@ func main() {
 		if err != nil {
 			return err
 		}
-		if _, err := versionManager.Update(c.Request().Context(), example.MakePetsKey(pet.ID)); err != nil {
-			return err
-		}
-		res, err := presenter.PetResponse(c.Request().Context(), pet)
+		res, err := example.PetResponse(pet)
 		if err != nil {
 			return err
 		}
 		return c.JSON(http.StatusOK, res)
-	}, echooptimisticlocker.PreconditionCheck(locker, example.KeyParser("/pets/:id")))
+	}, echooptimisticlocker.PreconditionCheck(func(r *http.Request) (any, error) {
+		id, err := petsIDParser(r)
+		if err != nil {
+			return nil, err
+		}
+		return service.Get(r.Context(), id)
+	}))
 
 	e.Logger.Fatal(e.Start(":1234"))
 }
